@@ -34,7 +34,7 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type CallStatus = 'dialing' | 'ringing' | 'connecting' | 'connected' | 'declined' | 'declined';
+type CallStatus = 'dialing' | 'ringing' | 'connecting' | 'connected' | 'declined';
 
 interface CallSession {
   callId:        string;
@@ -489,8 +489,8 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
       if (!data || error) return;
       
       const s = data.status;
-      if (s === 'rejected' && statusRef.current !== 'declined') { setStatusSafe('declined'); setTimeout(onClose, 2500); }
-      else if ((s === 'declined' || s === 'missed') && statusRef.current !== 'declined') { setStatusSafe('declined'); setTimeout(onClose, 1500); }
+      if (s === 'rejected') { setStatusSafe('declined'); setTimeout(onClose, 2500); }
+      else if (s === 'declined' || s === 'missed') { setStatusSafe('declined'); setTimeout(onClose, 1500); }
       else if (s === 'accepted' && data.sdp && !session.isIncoming) {
          const pc = peerRef.current;
          if (pc && pc.signalingState !== 'closed' && !remoteDescReady.current) {
@@ -789,17 +789,6 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
     }
   };
 
-  // const handleDecline = useCallback(async () => {
-  //   try {
-  //     setStatusSafe('declined');
-  //     await updateStatus('rejected');
-  //     await insertCallLog('declined');
-  //   } catch (e) {
-  //     console.warn('[Call] Decline error:', e);
-  //   } finally {
-  //     onClose();
-  //   }
-  // }, [updateStatus, insertCallLog, onClose, setStatusSafe]);
 
   const handleEnd = useCallback(async () => {
     try {
@@ -864,12 +853,11 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
     connecting: 'Connecting...',
     connected:  fmt(duration),
     declined:   'Call declined',
-    declined:      'Call declined'
   };
   const statusColor: Record<CallStatus, string> = {
     dialing:    '#38bdf8', ringing:   '#38bdf8',
     connecting: '#f59e0b', connected: '#22c55e',
-    declined:   '#ef4444', declined:     '#ef4444'
+    declined:   '#ef4444',
   };
 
   if (error) return (
