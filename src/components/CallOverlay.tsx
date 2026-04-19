@@ -34,7 +34,7 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type CallStatus = 'dialing' | 'ringing' | 'connecting' | 'connected' | 'declined' | 'ended';
+type CallStatus = 'dialing' | 'ringing' | 'connecting' | 'connected' | 'declined' | 'declined';
 
 interface CallSession {
   callId:        string;
@@ -425,7 +425,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
         }
       })
       .on('broadcast', { event: 'end' }, () => {
-        if (!cancelledRef.current) { setStatusSafe('ended'); setTimeout(onClose, 1500); }
+        if (!cancelledRef.current) { setStatusSafe('declined'); setTimeout(onClose, 1500); }
       })
       .subscribe((s) => {
         console.log('[Signal] Channel status:', s, 'for:', callId);
@@ -451,8 +451,8 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
         console.log('[Call] DB status:', s);
         
         if (s === 'rejected') { setStatusSafe('declined'); setTimeout(onClose, 2500); return; }
-        if (s === 'ended')    { setStatusSafe('ended');    setTimeout(onClose, 1500); return; }
-        if (s === 'missed')   { setStatusSafe('ended');    setTimeout(onClose, 2000); return; }
+        if (s === 'declined')    { setStatusSafe('declined');    setTimeout(onClose, 1500); return; }
+        if (s === 'missed')   { setStatusSafe('declined');    setTimeout(onClose, 2000); return; }
 
         if (s === 'accepted' && row.sdp && !session.isIncoming) {
            const pc = peerRef.current;
@@ -484,13 +484,13 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
   useEffect(() => {
     const t = setInterval(async () => {
       const cid = callIdRef.current;
-      if (!cid || cancelledRef.current || statusRef.current === 'ended') return;
+      if (!cid || cancelledRef.current || statusRef.current === 'declined') return;
       const { data, error } = await supabase.from('calls').select('status, sdp').eq('id', cid).single();
       if (!data || error) return;
       
       const s = data.status;
       if (s === 'rejected' && statusRef.current !== 'declined') { setStatusSafe('declined'); setTimeout(onClose, 2500); }
-      else if ((s === 'ended' || s === 'missed') && statusRef.current !== 'ended') { setStatusSafe('ended'); setTimeout(onClose, 1500); }
+      else if ((s === 'declined' || s === 'missed') && statusRef.current !== 'declined') { setStatusSafe('declined'); setTimeout(onClose, 1500); }
       else if (s === 'accepted' && data.sdp && !session.isIncoming) {
          const pc = peerRef.current;
          if (pc && pc.signalingState !== 'closed' && !remoteDescReady.current) {
@@ -533,7 +533,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
         if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
       }
       if (s === 'failed' || s === 'closed') {
-        if (!cancelledRef.current) { setStatusSafe('ended'); setTimeout(onClose, 2000); }
+        if (!cancelledRef.current) { setStatusSafe('declined'); setTimeout(onClose, 2000); }
       }
     };
 
@@ -613,7 +613,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
           drainOutIce();
         });
 
-        // Subscribe to DB for ended/missed events
+        // Subscribe to DB for declined/missed events
         subscribeDbChannel(session.callId);
 
         // Update DB status and SAVE ANSWER for bulletproof signaling
@@ -677,7 +677,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
         // React 18 Strict Mode fix: If unmounted during DB insert, kill the ghost call immediately
         if (cancelledRef.current) {
            console.log('[Call] ⚠️ Unmounted during init, killing ghost call:', realId);
-           supabase.from('calls').update({ status: 'ended' }).eq('id', realId);
+           supabase.from('calls').update({ status: 'declined' }).eq('id', realId);
            return;
         }
 
@@ -718,7 +718,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
               status: 'sent'
             });
           } catch (e) { console.log('[Call] missed log error', e); }
-          if (!cancelledRef.current) { setStatusSafe('ended'); setTimeout(onClose, 2000); }
+          if (!cancelledRef.current) { setStatusSafe('declined'); setTimeout(onClose, 2000); }
         }, CALL_TIMEOUT);
       }
     }
@@ -734,7 +734,7 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
         // but for status update we just trigger a quick end broadcast
         sendSignal('end', {});
         // Fire and forget DB update
-        updateStatus('ended');
+        updateStatus('declined');
       }
     };
     window.addEventListener('beforeunload', handleUnload);
@@ -763,14 +763,14 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
   }, [user?.id]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
-  const insertCallLog = async (finalStatus: 'ended' | 'rejected' | 'missed' | 'declined') => {
+  const insertCallLog = async (finalStatus: 'declined' | 'rejected' | 'missed' | 'declined') => {
     try {
       const isVideo = session.type === 'video';
       let content = isVideo ? '📹 Video Call' : '📞 Voice Call';
       
-      if (finalStatus === 'ended' && duration > 0) {
-        content += ` ended • ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`;
-      } else if (finalStatus === 'ended' && duration === 0) {
+      if (finalStatus === 'declined' && duration > 0) {
+        content += ` declined • ${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`;
+      } else if (finalStatus === 'declined' && duration === 0) {
         content = isVideo ? '📹 Missed video call' : '📞 Missed voice call';
       } else if (finalStatus === 'declined' || finalStatus === 'rejected') {
         content = isVideo ? '📹 Declined video call' : '📞 Declined voice call';
@@ -789,28 +789,28 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
     }
   };
 
-  const handleDecline = useCallback(async () => {
-    try {
-      setStatusSafe('declined');
-      await updateStatus('rejected');
-      await insertCallLog('declined');
-    } catch (e) {
-      console.warn('[Call] Decline error:', e);
-    } finally {
-      onClose();
-    }
-  }, [updateStatus, insertCallLog, onClose, setStatusSafe]);
+  // const handleDecline = useCallback(async () => {
+  //   try {
+  //     setStatusSafe('declined');
+  //     await updateStatus('rejected');
+  //     await insertCallLog('declined');
+  //   } catch (e) {
+  //     console.warn('[Call] Decline error:', e);
+  //   } finally {
+  //     onClose();
+  //   }
+  // }, [updateStatus, insertCallLog, onClose, setStatusSafe]);
 
   const handleEnd = useCallback(async () => {
     try {
-      setStatusSafe('ended');
+      setStatusSafe('declined');
       sendSignal('end', {});
-      await updateStatus('ended');
-      await insertCallLog('ended');
+      await updateStatus('declined');
+      await insertCallLog('declined');
     } catch (e) {
       console.warn('[Call] End error:', e);
     } finally {
-      // Small Delay to show "Call ended" before closing
+      // Small Delay to show "Call declined" before closing
       setTimeout(onClose, 1200);
     }
   }, [updateStatus, insertCallLog, onClose, setStatusSafe, sendSignal]);
@@ -864,12 +864,12 @@ function ActiveCallInterface({ session, onClose }: { session: CallSession; onClo
     connecting: 'Connecting...',
     connected:  fmt(duration),
     declined:   'Call declined',
-    ended:      'Call ended'
+    declined:      'Call declined'
   };
   const statusColor: Record<CallStatus, string> = {
     dialing:    '#38bdf8', ringing:   '#38bdf8',
     connecting: '#f59e0b', connected: '#22c55e',
-    declined:   '#ef4444', ended:     '#ef4444'
+    declined:   '#ef4444', declined:     '#ef4444'
   };
 
   if (error) return (
@@ -1085,7 +1085,7 @@ export default function CallOverlay() {
           };
         });
       } else {
-        // If the call was rejected/ended/missed, clear incoming overlay
+        // If the call was rejected/declined/missed, clear incoming overlay
         setIncoming(prev => (prev ? null : prev));
       }
     };
@@ -1103,7 +1103,7 @@ export default function CallOverlay() {
       .on('broadcast', { event: 'ring' }, async (msg: any) => {
         const { callId, type, caller_id, caller_name, caller_avatar, sdp } = msg.payload;
         if (activeRef.current) {
-          await supabase.from('calls').update({ status: 'ended' }).eq('id', callId);
+          await supabase.from('calls').update({ status: 'declined' }).eq('id', callId);
           return;
         }
         if (processedCallsRef.current.has(callId)) return;
@@ -1126,7 +1126,7 @@ export default function CallOverlay() {
         if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && row.status === 'calling') {
           if (activeRef.current) {
             console.warn('[CallOverlay] Busy — auto-rejecting');
-            supabase.from('calls').update({ status: 'ended' }).eq('id', row.id);
+            supabase.from('calls').update({ status: 'declined' }).eq('id', row.id);
             return;
           }
 
@@ -1168,7 +1168,7 @@ export default function CallOverlay() {
   const rejectCall = useCallback(async () => {
     if (!incoming) return;
     processedCallsRef.current.add(incoming.callId);
-    await supabase.from('calls').update({ status: 'ended' }).eq('id', incoming.callId);
+    await supabase.from('calls').update({ status: 'declined' }).eq('id', incoming.callId);
     setIncoming(null);
   }, [incoming]);
 
